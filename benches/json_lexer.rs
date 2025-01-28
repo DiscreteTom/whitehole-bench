@@ -12,13 +12,10 @@ use std::fs::read_to_string;
 use whitehole::combinator::{eat, next};
 
 fn lex_json_with_whitehole(s: &str) {
-  // Use `* (1..)` to repeat for one or more times.
   let whitespaces = next(in_str!(" \t\r\n")) * (1..);
 
   let number = {
     let digit_1_to_9 = next(|c| matches!(c, '1'..='9'));
-    // To re-use a combinator for multiple times, instead of wrapping the combinator in an Rc,
-    // use a closure to generate the combinator for better runtime performance (via inlining).
     let digits = || next(|c| c.is_ascii_digit()) * (1..);
     let integer = eat('0') | (digit_1_to_9 + digits().optional());
     let fraction = eat('.') + digits();
@@ -36,7 +33,6 @@ fn lex_json_with_whitehole(s: &str) {
       let non_escape =
         next(|c| c != '"' && c != '\\' && matches!(c, '\u{0020}'..='\u{10ffff}')) * (1..);
 
-      // Use `* (..)` to repeat for zero or more times.
       (escape | non_escape) * ..
     };
     eat('"') + body_optional + '"'
