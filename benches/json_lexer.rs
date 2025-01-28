@@ -1,10 +1,15 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use in_str::in_str;
-use std::fs::read_to_string;
-use whitehole::{
-  combinator::{eat, next},
-  parser::Parser,
+use nom::{
+  branch::alt,
+  bytes::complete::{tag, take_while1, take_while_m_n},
+  character::complete::char,
+  combinator::opt,
+  multi::many0_count,
+  IResult, Parser,
 };
+use std::fs::read_to_string;
+use whitehole::combinator::{eat, next};
 
 fn lex_json_with_whitehole(s: &str) {
   // Use `* (1..)` to repeat for one or more times.
@@ -39,7 +44,7 @@ fn lex_json_with_whitehole(s: &str) {
 
   let boundary = next(in_str!("[]{}:,"));
 
-  let mut parser = Parser::builder()
+  let mut parser = whitehole::parser::Parser::builder()
     .entry(whitespaces | boundary | number | string | "true" | "false" | "null")
     .build(s);
 
@@ -56,6 +61,121 @@ fn lex_json_with_whitehole(s: &str) {
       "lexer failed to consume the whole input, remaining: {:?}",
       &parser.instant().rest()[..100.min(parser.instant().rest().len())]
     );
+  }
+}
+
+fn lex_json_with_nom(s: &str) {
+  fn whitespaces(i: &str) -> IResult<&str, ()> {
+    take_while1(in_str!(" \t\r\n")).map(|_| ()).parse(i)
+  }
+
+  fn number(i: &str) -> IResult<&str, ()> {
+    fn digits(i: &str) -> IResult<&str, ()> {
+      take_while1(|c: char| c.is_ascii_digit())
+        .map(|_| ())
+        .parse(i)
+    }
+    fn integer(i: &str) -> IResult<&str, ()> {
+      alt((char('0').map(|_| ()), digits.map(|_| ()))).parse(i)
+    }
+    fn fraction(i: &str) -> IResult<&str, ()> {
+      let (i, _) = char('.')(i)?;
+      digits(i)
+    }
+    fn exponent(i: &str) -> IResult<&str, ()> {
+      let (i, _) = alt((char('e'), char('E'))).parse(i)?;
+      let (i, _) = opt(alt((char('-'), char('+')))).parse(i)?;
+      digits(i)
+    }
+
+    let (i, _) = opt(char('-')).parse(i)?;
+    let (i, _) = integer(i)?;
+    let (i, _) = opt(fraction).parse(i)?;
+    opt(exponent).map(|_| ()).parse(i)
+  }
+
+  fn string(i: &str) -> IResult<&str, ()> {
+    fn body_optional(i: &str) -> IResult<&str, ()> {
+      fn escape(i: &str) -> IResult<&str, ()> {
+        fn simple(i: &str) -> IResult<&str, ()> {
+          alt((
+            char('"'),
+            char('\\'),
+            char('/'),
+            char('b'),
+            char('f'),
+            char('n'),
+            char('r'),
+            char('t'),
+          ))
+          .map(|_| ())
+          .parse(i)
+        }
+        fn hex(i: &str) -> IResult<&str, ()> {
+          let (i, _) = char('u')(i)?;
+          take_while_m_n(4, 4, |c: char| c.is_ascii_hexdigit())
+            .map(|_| ())
+            .parse(i)
+        }
+
+        let (i, _) = char('\\')(i)?;
+        alt((simple, hex)).parse(i)
+      }
+
+      fn non_escape(i: &str) -> IResult<&str, ()> {
+        take_while1(|c: char| c != '"' && c != '\\' && matches!(c, '\u{0020}'..='\u{10ffff}'))
+          .map(|_| ())
+          .parse(i)
+      }
+
+      many0_count(alt((escape, non_escape))).map(|_| ()).parse(i)
+    }
+
+    let (i, _) = char('"')(i)?;
+    let (i, _) = body_optional(i)?;
+    char('"').map(|_| ()).parse(i)
+  }
+
+  fn boundary(i: &str) -> IResult<&str, ()> {
+    alt((
+      char('['),
+      char(']'),
+      char('{'),
+      char('}'),
+      char(':'),
+      char(','),
+    ))
+    .map(|_| ())
+    .parse(i)
+  }
+
+  fn entry(i: &str) -> IResult<&str, ()> {
+    alt((
+      whitespaces,
+      boundary,
+      number,
+      string,
+      tag("true").map(|_| ()),
+      tag("false").map(|_| ()),
+      tag("null").map(|_| ()),
+    ))
+    .parse(i)
+  }
+
+  let mut last_len = 0;
+  let mut i = s;
+  loop {
+    i = entry(i).unwrap().0;
+    if i.len() == 0 {
+      break;
+    }
+    if i.len() == last_len {
+      panic!(
+        "lexer failed to consume the whole input, remaining: {:?}",
+        &i[..100.min(i.len())]
+      );
+    }
+    last_len = i.len();
   }
 }
 
@@ -78,6 +198,20 @@ fn bench_lex(c: &mut Criterion) {
         lex_json_with_whitehole(&citm_catalog);
         lex_json_with_whitehole(&twitter);
         lex_json_with_whitehole(&canada);
+      })
+    },
+  );
+
+  c.bench_function(
+    &format!(
+      "lex_json_with_nom: lex 3 json files (total {} bytes)",
+      total_bytes
+    ),
+    |b| {
+      b.iter(|| {
+        lex_json_with_nom(&citm_catalog);
+        lex_json_with_nom(&twitter);
+        lex_json_with_nom(&canada);
       })
     },
   );
