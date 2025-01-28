@@ -176,8 +176,6 @@ fn lex_json_with_nom(s: &str) {
 }
 
 fn bench_lex(c: &mut Criterion) {
-  // json files are from https://github.com/miloyip/nativejson-benchmark/tree/478d5727c2a4048e835a29c65adecc7d795360d5/data
-  // you may need to download them manually
   let citm_catalog = read_to_string("bench_data/citm_catalog.json").unwrap();
   let twitter = read_to_string("bench_data/twitter.json").unwrap();
   let canada = read_to_string("bench_data/canada.json").unwrap();
