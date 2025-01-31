@@ -25,3 +25,16 @@ time:   [4.2659 ms 4.3519 ms 4.4500 ms]
 lex_json_with_nom: lex 3 json files (total 4609769 bytes)
 time:   [14.197 ms 14.456 ms 14.753 ms]
 ```
+
+### [JSON Parser](./benches/json_parser.rs)
+
+- Parsing nested content (using `recur`) is currently a low-light of whitehole.
+- Heap allocation included.
+
+```
+parse_json_with_whitehole: parse 3 json files (total 4609769 bytes)
+time:   [34.233 ms 34.959 ms 35.772 ms]
+
+parse_json_with_nom: parse 3 json files (total 4609769 bytes)
+time:   [31.791 ms 32.512 ms 33.301 ms]
+```
